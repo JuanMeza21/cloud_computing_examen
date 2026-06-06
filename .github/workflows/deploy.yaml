@@ -43,7 +43,7 @@ jobs:
           --parameter-overrides \
           VpcId=vpc-00ca71aa189360d39 \
           PublicSubnet=subnet-0c6e00f23ed1b2b9e \
-          EC2SecurityGroupId=sg-0a6ae1a751fbbe41a
+          EC2SecurityGroupId=sg-0e983dfd370a1fa00
 
       # STACK 3 - ALB + ASG
       - name: Deploy ALB-ASG Stack
