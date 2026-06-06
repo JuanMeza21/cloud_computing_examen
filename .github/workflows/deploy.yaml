@@ -22,45 +22,74 @@ jobs:
       - name: Deploy Security Stack
         run: |
           aws cloudformation deploy \
-          --template-file templates/security.yaml \
-          --stack-name SecurityGroups-Meza-Torres \
-          --parameter-overrides \
-          VpcId=vpc-00ca71aa189360d39
+            --template-file templates/security.yaml \
+            --stack-name SecurityGroups-Meza-Torres \
+            --parameter-overrides \
+              VpcId=vpc-00ca71aa189360d39
 
-      # Obtener el Security Group exportado por el Stack 1
-      - name: Get EC2 Security Group ID
+      # Leer el SG exportado dinámicamente por Stack 1
+      - name: Get Security Group ID
         run: |
           echo "EC2_SG_ID=$(aws cloudformation list-exports \
-          --query \"Exports[?Name=='EC2SecurityGroupId'].Value\" \
-          --output text)" >> $GITHUB_ENV
+            --query "Exports[?Name=='EC2SecurityGroupId'].Value" \
+            --output text)" >> $GITHUB_ENV
 
       # STACK 2 - EC2
       - name: Deploy EC2 Stack
         run: |
           aws cloudformation deploy \
-          --template-file templates/ec2.yaml \
-          --stack-name EC2-Meza-Torres \
-          --parameter-overrides \
-          VpcId=vpc-00ca71aa189360d39 \
-          PublicSubnet=subnet-0c6e00f23ed1b2b9e \
-          EC2SecurityGroupId=sg-0a6ae1a751fbbe41a
+            --template-file templates/ec2.yaml \
+            --stack-name EC2-Meza-Torres \
+            --parameter-overrides \
+              VpcId=vpc-00ca71aa189360d39 \
+              PublicSubnet=subnet-0c6e00f23ed1b2b9e \
+              EC2SecurityGroupId=${{ env.EC2_SG_ID }}
 
       # STACK 3 - ALB + ASG
       - name: Deploy ALB-ASG Stack
         run: |
           aws cloudformation deploy \
-          --template-file templates/alb-asg.yaml \
-          --stack-name ALB-ASG-Meza-Torres \
-          --parameter-overrides \
-          VpcId=vpc-00ca71aa189360d39 \
-          PublicSubnet1=subnet-0c6e00f23ed1b2b9e \
-          PublicSubnet2=subnet-0ce4cf95e04f5f014
+            --template-file templates/alb-asg.yaml \
+            --stack-name ALB-ASG-Meza-Torres \
+            --parameter-overrides \
+              VpcId=vpc-00ca71aa189360d39 \
+              PublicSubnet1=subnet-0c6e00f23ed1b2b9e \
+              PublicSubnet2=subnet-0ce4cf95e04f5f014
+
+      # Verificar exports del Stack 3 antes de Stack 4
+      - name: Verify Stack 3 exports
+        run: |
+          ASG_NAME=$(aws cloudformation list-exports \
+            --query "Exports[?Name=='ALB-ASG-Meza-Torres-asg-name'].Value" \
+            --output text)
+
+          if [ -z "$ASG_NAME" ] || [ "$ASG_NAME" == "None" ]; then
+            echo "ERROR: Export ALB-ASG-Meza-Torres-asg-name not found"
+            exit 1
+          fi
+
+          echo "ASG_NAME=$ASG_NAME" >> $GITHUB_ENV
+          echo "Stack 3 verificado: ASG=$ASG_NAME"
 
       # STACK 4 - AUTOMATION
       - name: Deploy Automation Stack
         run: |
           aws cloudformation deploy \
-          --template-file templates/automation.yaml \
-          --stack-name Automation-Meza-Torres \
-          --parameter-overrides \
-          Stack3Name=ALB-ASG-Meza-Torres
+            --template-file templates/automation.yaml \
+            --stack-name Automation-Meza-Torres \
+            --parameter-overrides \
+              Stack3Name=ALB-ASG-Meza-Torres
+
+      # Actualizar ASG para usar Launch Template v2
+      - name: Update ASG to Launch Template v2
+        run: |
+          LT_V2_ID=$(aws cloudformation describe-stacks \
+            --stack-name Automation-Meza-Torres \
+            --query "Stacks[0].Outputs[?OutputKey=='LaunchTemplateV2Id'].OutputValue" \
+            --output text)
+
+          aws autoscaling update-auto-scaling-group \
+            --auto-scaling-group-name "${{ env.ASG_NAME }}" \
+            --launch-template "LaunchTemplateId=$LT_V2_ID,Version=\$Latest"
+
+          echo "ASG actualizado al Launch Template v2: $LT_V2_ID"
