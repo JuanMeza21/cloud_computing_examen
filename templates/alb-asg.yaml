@@ -19,7 +19,7 @@ Parameters:
 
   InstanceType:
     Type: String
-    Default: t2.micro
+    Default: t3.micro
     AllowedValues: [t2.micro, t2.small, t3.micro, t3.small]
     Description: "Tipo de instancia EC2"
 
@@ -62,7 +62,7 @@ Resources:
   ALBSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Permite tráfico HTTP/HTTPS entrante al ALB"
+      GroupDescription: "Permite HTTP/HTTPS entrante al ALB"
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -81,7 +81,7 @@ Resources:
   InstanceSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupDescription: "Permite tráfico HTTP desde el ALB"
+      GroupDescription: "Permite HTTP desde el ALB"
       VpcId: !Ref VpcId
       SecurityGroupIngress:
         - IpProtocol: tcp
@@ -285,3 +285,9 @@ Outputs:
   AppURL:
     Description: "URL de la aplicación web"
     Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
+
+  InstanceSecurityGroupId:
+    Description: "ID del Security Group de las instancias EC2"
+    Value: !Ref InstanceSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-instance-sg-id"

@@ -1,18 +1,15 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "Stack 4 - Automatización y Escalabilidad Programada (Scheduled Actions + LT v2)"
 
-# ─────────────────────────────────────────────
-# PARÁMETROS
-# ─────────────────────────────────────────────
 Parameters:
   Stack3Name:
     Type: String
     Description: "Nombre exacto del Stack 3 (para importar sus Outputs)"
-    Default: "stack3-alb-asg-Juan-Garcia"
+    Default: "ALB-ASG-Meza-Torres"
 
   InstanceType:
     Type: String
-    Default: t2.small
+    Default: t3.micro
     AllowedValues: [t2.micro, t2.small, t3.micro, t3.small]
     Description: "Tipo de instancia para el Launch Template v2"
 
@@ -21,32 +18,26 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
     Description: "AMI de Amazon Linux 2"
 
-  # ── Horarios de escala (cron en UTC) ──────────────────────────────────────
-  # Incremento 1: lunes-viernes a las 07:00 UTC (inicio de jornada)
   ScaleUpCron1:
     Type: String
     Default: "0 7 * * 1-5"
-    Description: "Cron de incremento 1 (UTC). Default: lun-vie 07:00 UTC"
+    Description: "Cron incremento 1 (UTC). Default: lun-vie 07:00 UTC"
 
-  # Incremento 2: lunes-viernes a las 12:00 UTC (hora pico mediodía)
   ScaleUpCron2:
     Type: String
     Default: "0 12 * * 1-5"
-    Description: "Cron de incremento 2 (UTC). Default: lun-vie 12:00 UTC"
+    Description: "Cron incremento 2 (UTC). Default: lun-vie 12:00 UTC"
 
-  # Reducción 1: lunes-viernes a las 14:00 UTC (post-pico mediodía)
   ScaleDownCron1:
     Type: String
     Default: "0 14 * * 1-5"
-    Description: "Cron de reducción 1 (UTC). Default: lun-vie 14:00 UTC"
+    Description: "Cron reducción 1 (UTC). Default: lun-vie 14:00 UTC"
 
-  # Reducción 2: lunes-viernes a las 20:00 UTC (fin de jornada)
   ScaleDownCron2:
     Type: String
     Default: "0 20 * * 1-5"
-    Description: "Cron de reducción 2 (UTC). Default: lun-vie 20:00 UTC"
+    Description: "Cron reducción 2 (UTC). Default: lun-vie 20:00 UTC"
 
-  # ── Capacidades ──────────────────────────────────────────────────────────
   PeakDesired:
     Type: Number
     Default: 4
@@ -77,27 +68,19 @@ Parameters:
     Default: 1
     Description: "Capacidad mínima fuera de hora pico"
 
-# ─────────────────────────────────────────────
-# RECURSOS
-# ─────────────────────────────────────────────
 Resources:
 
   # ── Launch Template v2 ──────────────────────
-  # Crea una NUEVA versión del mismo Launch Template del Stack 3.
-  # Usa !ImportValue para obtener el ID del LT existente y crear la v2.
   LaunchTemplateV2:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      # Mismo nombre que el del Stack 3 → crea una segunda versión
-      LaunchTemplateName: !Sub
-        - "${Stack3LT}"
-        - Stack3LT: !ImportValue
-            !Sub "${Stack3Name}-lt-id"   # nombre exportado del Stack 3
-
+      LaunchTemplateName: !Sub "${AWS::StackName}-lt-v2"
       LaunchTemplateData:
         ImageId: !Ref AmiId
-        InstanceType: !Ref InstanceType   # t2.small en lugar de t2.micro
-        # UserData actualizado para la v2
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              Fn::Sub: "${Stack3Name}-instance-sg-id"
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
@@ -138,7 +121,7 @@ Resources:
                 <p><strong>Instance ID:</strong> $INSTANCE_ID</p>
                 <p><strong>Availability Zone:</strong> $AZ</p>
                 <p><strong>Stack:</strong> ${AWS::StackName}</p>
-                <div class="badge-v2">Launch Template v2 | t2.small</div>
+                <div class="badge-v2">Launch Template v2 | ${InstanceType}</div>
               </div>
             </body>
             </html>
@@ -148,31 +131,11 @@ Resources:
           - ResourceType: instance
             Tags:
               - Key: Name
-                Value: !Sub "${Stack3Name}-instance-v2"
+                Value: !Sub "${AWS::StackName}-instance-v2"
               - Key: LaunchTemplateVersion
                 Value: "2"
 
-  # ── Actualización del ASG para usar LT v2 ───
-  # CloudFormation no puede hacer "UpdateAutoScalingGroup" directamente,
-  # se usa un Custom Resource (Lambda inline) para actualizar el ASG
-  # con la nueva versión del Launch Template.
-  #
-  # ALTERNATIVA SIMPLE: si lo ejecutas después de que el Stack 3 ya existe,
-  # el siguiente recurso SSM Parameter + script es suficiente para evidencia.
-  # La forma recomendada en AWS es usar un update directo por CLI o console;
-  # para CloudFormation se añade el parámetro InstanceRefreshEnabled.
-  #
-  # ─────────────────────────────────────────
-  # NOTA: Para actualizar el ASG a LT v2, ejecuta en tu terminal:
-  #
-  #   aws autoscaling update-auto-scaling-group \
-  #     --auto-scaling-group-name <nombre-asg-del-stack3> \
-  #     --launch-template LaunchTemplateId=<lt-id>,Version=2
-  #
-  # O usa el recurso UpdateASGParam de abajo como disparo de evidencia.
-  # ─────────────────────────────────────────
-
-  # Parámetro SSM que registra la versión activa del LT en el ASG
+  # ── Parámetro SSM de evidencia ───────────────
   ASGLaunchTemplateVersionParam:
     Type: AWS::SSM::Parameter
     Properties:
@@ -183,87 +146,85 @@ Resources:
 
   # ── Scheduled Actions ────────────────────────
 
-  # Incremento 1: inicio de jornada laboral
   ScaleUpAction1:
     Type: AWS::AutoScaling::ScheduledAction
     Properties:
-      AutoScalingGroupName: !ImportValue
-        !Sub "${Stack3Name}-asg-name"
+      AutoScalingGroupName:
+        Fn::ImportValue:
+          Fn::Sub: "${Stack3Name}-asg-name"
       DesiredCapacity: !Ref PeakDesired
       MaxSize: !Ref PeakMax
       MinSize: !Ref PeakMin
       Recurrence: !Ref ScaleUpCron1
 
-  # Incremento 2: hora pico del mediodía
   ScaleUpAction2:
     Type: AWS::AutoScaling::ScheduledAction
     Properties:
-      AutoScalingGroupName: !ImportValue
-        !Sub "${Stack3Name}-asg-name"
+      AutoScalingGroupName:
+        Fn::ImportValue:
+          Fn::Sub: "${Stack3Name}-asg-name"
       DesiredCapacity: !Ref PeakMax
       MaxSize: !Ref PeakMax
       MinSize: !Ref PeakMin
       Recurrence: !Ref ScaleUpCron2
 
-  # Reducción 1: post-pico del mediodía
   ScaleDownAction1:
     Type: AWS::AutoScaling::ScheduledAction
     Properties:
-      AutoScalingGroupName: !ImportValue
-        !Sub "${Stack3Name}-asg-name"
+      AutoScalingGroupName:
+        Fn::ImportValue:
+          Fn::Sub: "${Stack3Name}-asg-name"
       DesiredCapacity: !Ref PeakDesired
       MaxSize: !Ref PeakMax
       MinSize: !Ref OffPeakMin
       Recurrence: !Ref ScaleDownCron1
 
-  # Reducción 2: fin de jornada laboral
   ScaleDownAction2:
     Type: AWS::AutoScaling::ScheduledAction
     Properties:
-      AutoScalingGroupName: !ImportValue
-        !Sub "${Stack3Name}-asg-name"
+      AutoScalingGroupName:
+        Fn::ImportValue:
+          Fn::Sub: "${Stack3Name}-asg-name"
       DesiredCapacity: !Ref OffPeakDesired
       MaxSize: !Ref OffPeakMax
       MinSize: !Ref OffPeakMin
       Recurrence: !Ref ScaleDownCron2
 
-# ─────────────────────────────────────────────
-# OUTPUTS
-# ─────────────────────────────────────────────
 Outputs:
   LaunchTemplateV2Id:
-    Description: "ID del Launch Template (v2 creada)"
+    Description: "ID del Launch Template v2"
     Value: !Ref LaunchTemplateV2
     Export:
       Name: !Sub "${AWS::StackName}-lt-v2-id"
 
   LaunchTemplateV2Version:
-    Description: "Versión del Launch Template v2"
+    Description: "Última versión del Launch Template v2"
     Value: !GetAtt LaunchTemplateV2.LatestVersionNumber
     Export:
       Name: !Sub "${AWS::StackName}-lt-v2-version"
 
   ScaleUpAction1Arn:
-    Description: "ARN de Scheduled Action - Incremento 1 (inicio de jornada)"
+    Description: "Scheduled Action - Incremento 1 (inicio de jornada)"
     Value: !Ref ScaleUpAction1
 
   ScaleUpAction2Arn:
-    Description: "ARN de Scheduled Action - Incremento 2 (hora pico)"
+    Description: "Scheduled Action - Incremento 2 (hora pico)"
     Value: !Ref ScaleUpAction2
 
   ScaleDownAction1Arn:
-    Description: "ARN de Scheduled Action - Reducción 1 (post-pico)"
+    Description: "Scheduled Action - Reducción 1 (post-pico)"
     Value: !Ref ScaleDownAction1
 
   ScaleDownAction2Arn:
-    Description: "ARN de Scheduled Action - Reducción 2 (fin de jornada)"
+    Description: "Scheduled Action - Reducción 2 (fin de jornada)"
     Value: !Ref ScaleDownAction2
 
   UpdateASGCommand:
-    Description: "Comando CLI para actualizar el ASG a LT v2"
-    Value: !Sub
-      - "aws autoscaling update-auto-scaling-group --auto-scaling-group-name ${ASGName} --launch-template LaunchTemplateId=${LTId},Version=2"
-      - ASGName: !ImportValue
-          !Sub "${Stack3Name}-asg-name"
-        LTId: !ImportValue
-          !Sub "${Stack3Name}-lt-id"
+    Description: "Comando CLI para apuntar el ASG al LT v2"
+    Value:
+      Fn::Sub:
+        - "aws autoscaling update-auto-scaling-group --auto-scaling-group-name ${ASGName} --launch-template LaunchTemplateId=${LTV2Id},Version=$Latest"
+        - ASGName:
+            Fn::ImportValue:
+              Fn::Sub: "${Stack3Name}-asg-name"
+          LTV2Id: !Ref LaunchTemplateV2

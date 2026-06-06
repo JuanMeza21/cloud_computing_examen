@@ -4,13 +4,10 @@ on:
   workflow_dispatch:
 
 jobs:
-
   Deploy:
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -21,26 +18,49 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      # STACK 1 - SECURITY GROUPS
       - name: Deploy Security Stack
         run: |
           aws cloudformation deploy \
           --template-file templates/security.yaml \
-          --stack-name SecurityGroups-Juan-Sebastian
+          --stack-name SecurityGroups-Meza-Torres \
+          --parameter-overrides \
+          VpcId=vpc-00ca71aa189360d39
 
+      # Obtener el Security Group exportado por el Stack 1
+      - name: Get EC2 Security Group ID
+        run: |
+          echo "EC2_SG_ID=$(aws cloudformation list-exports \
+          --query \"Exports[?Name=='EC2SecurityGroupId'].Value\" \
+          --output text)" >> $GITHUB_ENV
+
+      # STACK 2 - EC2
       - name: Deploy EC2 Stack
         run: |
           aws cloudformation deploy \
           --template-file templates/ec2.yaml \
-          --stack-name EC2-Juan-Sebastian
+          --stack-name EC2-Meza-Torres \
+          --parameter-overrides \
+          VpcId=vpc-00ca71aa189360d39 \
+          PublicSubnet=subnet-0c6e00f23ed1b2b9e \
+          EC2SecurityGroupId=sg-0a6ae1a751fbbe41a
 
+      # STACK 3 - ALB + ASG
       - name: Deploy ALB-ASG Stack
         run: |
           aws cloudformation deploy \
           --template-file templates/alb-asg.yaml \
-          --stack-name ALB-ASG-Juan-Sebastian
+          --stack-name ALB-ASG-Meza-Torres \
+          --parameter-overrides \
+          VpcId=vpc-00ca71aa189360d39 \
+          PublicSubnet1=subnet-0c6e00f23ed1b2b9e \
+          PublicSubnet2=subnet-0ce4cf95e04f5f014
 
+      # STACK 4 - AUTOMATION
       - name: Deploy Automation Stack
         run: |
           aws cloudformation deploy \
           --template-file templates/automation.yaml \
-          --stack-name Automation-Juan-Sebastian
+          --stack-name Automation-Meza-Torres \
+          --parameter-overrides \
+          Stack3Name=ALB-ASG-Meza-Torres
