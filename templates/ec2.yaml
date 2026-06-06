@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: EC2 Amazon Linux con Elastic IP y Apache
+
+Parameters:
+
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+
+  PublicSubnet:
+    Type: AWS::EC2::Subnet::Id
+
+  EC2SecurityGroupId:
+    Type: String
+    Description: Security Group creado en el Stack Security
+
+Resources:
+
+  WebServerInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      InstanceType: t2.micro
+
+      ImageId: ami-0c101f26f147fa7fd
+
+      SecurityGroupIds:
+        - !Ref EC2SecurityGroupId
+
+      SubnetId: !Ref PublicSubnet
+
+      Tags:
+        - Key: Name
+          Value: EC2-Meza-Torres
+
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          yum update -y
+          yum install -y httpd
+
+          systemctl enable httpd
+          systemctl start httpd
+
+          cat > /var/www/html/index.html <<EOF
+          <html>
+          <head>
+              <title>Cloud Computing Final</title>
+          </head>
+          <body>
+              <h1>CloudFormation funcionando</h1>
+              <h2>Meza - Torres</h2>
+              <p>Servidor desplegado automáticamente mediante CloudFormation.</p>
+          </body>
+          </html>
+          EOF
+
+  ElasticIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: vpc
+
+  ElasticIPAssociation:
+    Type: AWS::EC2::EIPAssociation
+    Properties:
+      AllocationId: !GetAtt ElasticIP.AllocationId
+      InstanceId: !Ref WebServerInstance
+
+Outputs:
+
+  InstanceId:
+    Description: ID de la instancia EC2
+    Value: !Ref WebServerInstance
+
+  PublicIP:
+    Description: Elastic IP pública
+    Value: !Ref ElasticIP
+
+  WebsiteURL:
+    Description: URL del sitio web
+    Value: !Sub "http://${ElasticIP}"
