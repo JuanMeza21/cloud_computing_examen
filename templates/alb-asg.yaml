@@ -285,3 +285,9 @@ Outputs:
   AppURL:
     Description: "URL de la aplicación web"
     Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
+
+  InstanceSecurityGroupId:
+    Description: "ID del Security Group de las instancias EC2"
+    Value: !Ref InstanceSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-instance-sg-id"
