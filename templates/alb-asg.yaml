@@ -1,0 +1,287 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "Stack 3 - ALB, Target Group, Launch Template, Auto Scaling Group y Warm Pool"
+
+# ─────────────────────────────────────────────
+# PARÁMETROS
+# ─────────────────────────────────────────────
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: "ID de la VPC existente"
+
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Subred pública 1 (para ALB e instancias)"
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet::Id
+    Description: "Subred pública 2 (para ALB e instancias)"
+
+  InstanceType:
+    Type: String
+    Default: t2.micro
+    AllowedValues: [t2.micro, t2.small, t3.micro, t3.small]
+    Description: "Tipo de instancia EC2"
+
+  AmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
+    Description: "AMI de Amazon Linux 2 (obtenida automáticamente desde SSM)"
+
+  MinSize:
+    Type: Number
+    Default: 1
+    Description: "Mínimo de instancias en el ASG"
+
+  MaxSize:
+    Type: Number
+    Default: 4
+    Description: "Máximo de instancias en el ASG"
+
+  DesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: "Capacidad deseada del ASG"
+
+  WarmPoolMinSize:
+    Type: Number
+    Default: 1
+    Description: "Mínimo de instancias en el Warm Pool"
+
+  WarmPoolMaxSize:
+    Type: Number
+    Default: 2
+    Description: "Máximo de instancias en el Warm Pool"
+
+# ─────────────────────────────────────────────
+# RECURSOS
+# ─────────────────────────────────────────────
+Resources:
+
+  # ── Security Group para el ALB ──────────────
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Permite tráfico HTTP/HTTPS entrante al ALB"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-alb-sg"
+
+  # ── Security Group para las instancias ──────
+  InstanceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Permite tráfico HTTP desde el ALB"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-instance-sg"
+
+  # ── Application Load Balancer ───────────────
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Sub "${AWS::StackName}-alb"
+      Type: application
+      Scheme: internet-facing
+      SecurityGroups:
+        - !Ref ALBSecurityGroup
+      Subnets:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-alb"
+
+  # ── Target Group ────────────────────────────
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${AWS::StackName}-tg"
+      VpcId: !Ref VpcId
+      Protocol: HTTP
+      Port: 80
+      TargetType: instance
+      HealthCheckEnabled: true
+      HealthCheckProtocol: HTTP
+      HealthCheckPort: traffic-port
+      HealthCheckPath: /
+      HealthCheckIntervalSeconds: 30
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 5
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-tg"
+
+  # ── Listener del ALB ────────────────────────
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Protocol: HTTP
+      Port: 80
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+
+  # ── Launch Template (v1) ────────────────────
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-lt"
+      LaunchTemplateData:
+        ImageId: !Ref AmiId
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+          - !Ref InstanceSecurityGroup
+        # UserData: instala Apache y despliega la app web
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y httpd
+            systemctl start httpd
+            systemctl enable httpd
+
+            # Página de bienvenida con metadata de la instancia
+            TOKEN=$(curl -sX PUT "http://169.254.169.254/latest/api/token" \
+              -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+            INSTANCE_ID=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/instance-id)
+            AZ=$(curl -s -H "X-aws-ec2-metadata-token: $TOKEN" \
+              http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+            cat > /var/www/html/index.html <<EOF
+            <!DOCTYPE html>
+            <html lang="es">
+            <head>
+              <meta charset="UTF-8">
+              <title>Stack 3 - ALB + ASG</title>
+              <style>
+                body { font-family: Arial, sans-serif; background: #f0f4f8;
+                       display: flex; align-items: center; justify-content: center;
+                       height: 100vh; margin: 0; }
+                .card { background: #fff; border-radius: 12px; padding: 40px 60px;
+                        box-shadow: 0 4px 24px rgba(0,0,0,0.10); text-align: center; }
+                h1 { color: #232f3e; margin-bottom: 8px; }
+                p  { color: #5f6b7a; margin: 6px 0; font-size: 1.05rem; }
+                .badge { display: inline-block; background: #ff9900; color: #fff;
+                         border-radius: 6px; padding: 4px 16px; margin-top: 16px;
+                         font-weight: bold; font-size: 0.95rem; }
+              </style>
+            </head>
+            <body>
+              <div class="card">
+                <h1>&#9989; Instancia activa</h1>
+                <p><strong>Instance ID:</strong> $INSTANCE_ID</p>
+                <p><strong>Availability Zone:</strong> $AZ</p>
+                <p><strong>Stack:</strong> ${AWS::StackName}</p>
+                <div class="badge">Launch Template v1</div>
+              </div>
+            </body>
+            </html>
+            EOF
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: !Sub "${AWS::StackName}-instance-v1"
+              - Key: Stack
+                Value: !Ref AWS::StackName
+
+  # ── Auto Scaling Group ──────────────────────
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-asg"
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier:
+        - !Ref PublicSubnet1
+        - !Ref PublicSubnet2
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      HealthCheckType: ELB
+      HealthCheckGracePeriod: 120
+      MetricsCollection:
+        - Granularity: 1Minute
+      Tags:
+        - Key: Name
+          Value: !Sub "${AWS::StackName}-asg-instance"
+          PropagateAtLaunch: true
+
+  # ── Warm Pool ───────────────────────────────
+  WarmPool:
+    Type: AWS::AutoScaling::WarmPool
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      MinSize: !Ref WarmPoolMinSize
+      MaxGroupPreparedCapacity: !Ref WarmPoolMaxSize
+      # Las instancias se detienen (no terminan) al entrar al warm pool
+      PoolState: Stopped
+      InstanceReusePolicy:
+        ReuseOnScaleIn: false
+
+# ─────────────────────────────────────────────
+# OUTPUTS
+# ─────────────────────────────────────────────
+Outputs:
+  LoadBalancerDNS:
+    Description: "DNS público del Application Load Balancer"
+    Value: !GetAtt ApplicationLoadBalancer.DNSName
+    Export:
+      Name: !Sub "${AWS::StackName}-alb-dns"
+
+  LoadBalancerArn:
+    Description: "ARN del ALB"
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: !Sub "${AWS::StackName}-alb-arn"
+
+  TargetGroupArn:
+    Description: "ARN del Target Group"
+    Value: !Ref ALBTargetGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-tg-arn"
+
+  LaunchTemplateId:
+    Description: "ID del Launch Template"
+    Value: !Ref LaunchTemplate
+    Export:
+      Name: !Sub "${AWS::StackName}-lt-id"
+
+  LaunchTemplateVersion:
+    Description: "Versión del Launch Template"
+    Value: !GetAtt LaunchTemplate.LatestVersionNumber
+    Export:
+      Name: !Sub "${AWS::StackName}-lt-version"
+
+  AutoScalingGroupName:
+    Description: "Nombre del Auto Scaling Group"
+    Value: !Ref AutoScalingGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-asg-name"
+
+  AppURL:
+    Description: "URL de la aplicación web"
+    Value: !Sub "http://${ApplicationLoadBalancer.DNSName}"
