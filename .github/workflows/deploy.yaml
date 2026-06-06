@@ -1,0 +1,46 @@
+name: Deploy Infrastructure
+
+on:
+  workflow_dispatch:
+
+jobs:
+
+  Deploy:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Deploy Security Stack
+        run: |
+          aws cloudformation deploy \
+          --template-file templates/security.yaml \
+          --stack-name SecurityGroups-Juan-Sebastian
+
+      - name: Deploy EC2 Stack
+        run: |
+          aws cloudformation deploy \
+          --template-file templates/ec2.yaml \
+          --stack-name EC2-Juan-Sebastian
+
+      - name: Deploy ALB-ASG Stack
+        run: |
+          aws cloudformation deploy \
+          --template-file templates/alb-asg.yaml \
+          --stack-name ALB-ASG-Juan-Sebastian
+
+      - name: Deploy Automation Stack
+        run: |
+          aws cloudformation deploy \
+          --template-file templates/automation.yaml \
+          --stack-name Automation-Juan-Sebastian
