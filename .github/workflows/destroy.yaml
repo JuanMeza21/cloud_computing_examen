@@ -1,0 +1,88 @@
+name: Destroy Infrastructure
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Escribe DESTROY para confirmar la eliminación de toda la infraestructura'
+        required: true
+        type: string
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  Destroy:
+    name: Destroy
+    runs-on: ubuntu-latest
+
+    # Protección: solo ejecuta si el input es exactamente "DESTROY"
+    if: github.event.inputs.confirm == 'DESTROY'
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # ── Orden inverso al despliegue ──────────────────────────────────────
+
+      - name: Destroy Stack 4 - Automation
+        run: |
+          aws cloudformation delete-stack \
+            --stack-name stack4-automation \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Esperando eliminación del Stack 4..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name stack4-automation \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Stack 4 eliminado correctamente."
+
+      - name: Destroy Stack 3 - ALB ASG
+        run: |
+          aws cloudformation delete-stack \
+            --stack-name stack3-alb-asg-Juan-Garcia \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Esperando eliminación del Stack 3..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name stack3-alb-asg-Juan-Garcia \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Stack 3 eliminado correctamente."
+
+      - name: Destroy Stack 2 - EC2
+        run: |
+          aws cloudformation delete-stack \
+            --stack-name stack2-ec2 \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Esperando eliminación del Stack 2..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name stack2-ec2 \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Stack 2 eliminado correctamente."
+
+      - name: Destroy Stack 1 - Security
+        run: |
+          aws cloudformation delete-stack \
+            --stack-name stack1-security \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Esperando eliminación del Stack 1..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name stack1-security \
+            --region ${{ env.AWS_REGION }}
+
+          echo "Stack 1 eliminado correctamente."
+
+      - name: Destroy complete
+        run: echo "Toda la infraestructura ha sido eliminada exitosamente."
