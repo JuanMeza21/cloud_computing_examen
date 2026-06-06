@@ -16,7 +16,6 @@ jobs:
     name: Destroy
     runs-on: ubuntu-latest
 
-    # Protección: solo ejecuta si el input es exactamente "DESTROY"
     if: github.event.inputs.confirm == 'DESTROY'
 
     steps:
@@ -35,12 +34,12 @@ jobs:
       - name: Destroy Stack 4 - Automation
         run: |
           aws cloudformation delete-stack \
-            --stack-name stack4-automation \
+            --stack-name Automation-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Esperando eliminación del Stack 4..."
           aws cloudformation wait stack-delete-complete \
-            --stack-name stack4-automation \
+            --stack-name Automation-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Stack 4 eliminado correctamente."
@@ -48,12 +47,12 @@ jobs:
       - name: Destroy Stack 3 - ALB ASG
         run: |
           aws cloudformation delete-stack \
-            --stack-name stack3-alb-asg-Juan-Garcia \
+            --stack-name ALB-ASG-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Esperando eliminación del Stack 3..."
           aws cloudformation wait stack-delete-complete \
-            --stack-name stack3-alb-asg-Juan-Garcia \
+            --stack-name ALB-ASG-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Stack 3 eliminado correctamente."
@@ -61,12 +60,12 @@ jobs:
       - name: Destroy Stack 2 - EC2
         run: |
           aws cloudformation delete-stack \
-            --stack-name stack2-ec2 \
+            --stack-name EC2-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Esperando eliminación del Stack 2..."
           aws cloudformation wait stack-delete-complete \
-            --stack-name stack2-ec2 \
+            --stack-name EC2-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Stack 2 eliminado correctamente."
@@ -74,12 +73,12 @@ jobs:
       - name: Destroy Stack 1 - Security
         run: |
           aws cloudformation delete-stack \
-            --stack-name stack1-security \
+            --stack-name SecurityGroups-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Esperando eliminación del Stack 1..."
           aws cloudformation wait stack-delete-complete \
-            --stack-name stack1-security \
+            --stack-name SecurityGroups-Meza-Torres \
             --region ${{ env.AWS_REGION }}
 
           echo "Stack 1 eliminado correctamente."
