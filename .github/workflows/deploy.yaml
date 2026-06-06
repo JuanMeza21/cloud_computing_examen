@@ -4,13 +4,10 @@ on:
   workflow_dispatch:
 
 jobs:
-
   Deploy:
-
     runs-on: ubuntu-latest
 
     steps:
-
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -25,7 +22,9 @@ jobs:
         run: |
           aws cloudformation deploy \
           --template-file templates/security.yaml \
-          --stack-name SecurityGroups-Juan-Sebastian
+          --stack-name SecurityGroups-Meza-Torres \
+          --parameter-overrides \
+          VpcId=vpc-00ca71aa189360d39
 
       - name: Deploy EC2 Stack
         run: |
