@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Security Groups para EC2 y ALB
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: ID de la VPC existente
+
+Resources:
+
+  ALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SecurityGroups-Meza-ALB
+      GroupDescription: Security Group para Application Load Balancer
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: SecurityGroups-Meza-ALB
+
+  EC2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: SecurityGroups-Meza-EC2
+      GroupDescription: Security Group para instancias EC2
+      VpcId: !Ref VpcId
+
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !Ref ALBSecurityGroup
+
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+      Tags:
+        - Key: Name
+          Value: SecurityGroups-Meza-EC2
+
+Outputs:
+
+  ALBSecurityGroupId:
+    Description: ID del Security Group del ALB
+    Value: !Ref ALBSecurityGroup
+    Export:
+      Name: ALBSecurityGroupId
+
+  EC2SecurityGroupId:
+    Description: ID del Security Group de EC2
+    Value: !Ref EC2SecurityGroup
+    Export:
+      Name: EC2SecurityGroupId
